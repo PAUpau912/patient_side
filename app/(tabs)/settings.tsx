@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Picker } from '@react-native-picker/picker';
+import bcrypt from 'bcryptjs';
+import { Ionicons } from "@expo/vector-icons";
 import {
   Alert,
   Platform,
@@ -38,6 +40,8 @@ const Settings = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [reportTitle, setReportTitle] = useState("App Bug");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Alarms
   const [insulinTime, setInsulinTime] = useState(new Date());
@@ -47,6 +51,15 @@ const Settings = () => {
     type: "",
     visible: false,
   });
+
+  // ✅ Set fallback for React Native
+bcrypt.setRandomFallback((len) => {
+  const buf = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    buf[i] = Math.floor(Math.random() * 256);
+  }
+  return buf;
+});
 
   // Report Issue
   const [issueText, setIssueText] = useState("");
@@ -110,21 +123,39 @@ const Settings = () => {
 };
 
   const handleUpdatePassword = async () => {
-    if (!newPassword || !confirmPassword)
-      return Alert.alert("Error", "Please fill out both password fields.");
-    if (newPassword !== confirmPassword)
-      return Alert.alert("Error", "Passwords do not match.");
-    if (!user) return;
-    const userId = getUserId();
-    if (!userId) return Alert.alert("Error", "User ID not found.");
+  if (!newPassword || !confirmPassword)
+    return Alert.alert("Error", "Please fill out both password fields.");
+  if (newPassword !== confirmPassword)
+    return Alert.alert("Error", "Passwords do not match.");
+  if (!user) return;
+  
+  const userId = getUserId();
+  if (!userId) return Alert.alert("Error", "User ID not found.");
+
+  try {
     setLoading(true);
-    const { error } = await supabase.from("users").update({ password: newPassword }).eq("id", userId);
+
+    // ✅ Hash password bago i-save
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    const { error } = await supabase
+      .from("users")
+      .update({ password: hashedPassword })
+      .eq("id", userId);
+
     setLoading(false);
+
     if (error) return Alert.alert("Error", error.message);
+
     setNewPassword("");
     setConfirmPassword("");
     Alert.alert("Success", "Password updated successfully!");
-  };
+  } catch (err) {
+    setLoading(false);
+    console.error(err);
+    Alert.alert("Error", "Something went wrong. Try again later.");
+  }
+};
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem("user");
@@ -211,41 +242,74 @@ const handleReportIssue = async () => {
       </TouchableOpacity>
 
       {activeSection === "account" && (
-        <View style={{ marginTop: 20 }}>
-          <Text style={styles.sectionTitle}>Account Settings</Text>
-          <Text style={styles.label}>Current Email</Text>
-          <Text style={styles.currentEmail}>{user?.email || "Loading..."}</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter new email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <TouchableOpacity style={styles.button} onPress={handleUpdateEmail} disabled={loading}>
-            <Text style={styles.buttonText}>{loading ? "Updating..." : "Update Email"}</Text>
-          </TouchableOpacity>
+          <View style={{ marginTop: 20 }}>
+            <Text style={styles.sectionTitle}>Account Settings</Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Enter new password"
-            secureTextEntry
-            value={newPassword}
-            onChangeText={setNewPassword}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Confirm new password"
-            secureTextEntry
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-          />
-          <TouchableOpacity style={styles.button} onPress={handleUpdatePassword} disabled={loading}>
-            <Text style={styles.buttonText}>{loading ? "Updating..." : "Update Password"}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+            <Text style={styles.label}>Current Email</Text>
+            <Text style={styles.currentEmail}>{user?.email || "Loading..."}</Text>
+
+            <Text style={styles.label}>New Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter new email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            <TouchableOpacity style={styles.button} onPress={handleUpdateEmail} disabled={loading}>
+              <Text style={styles.buttonText}>{loading ? "Updating..." : "Update Email"}</Text>
+            </TouchableOpacity>
+
+            {/* ✅ New Password Field with toggle */}
+            <Text style={styles.label}>New Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Enter new password"
+                secureTextEntry={!showNewPassword}
+                value={newPassword}
+                onChangeText={setNewPassword}
+              />
+              <TouchableOpacity
+                onPress={() => setShowNewPassword(!showNewPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showNewPassword ? "eye-off" : "eye"}
+                  size={22}
+                  color="#067425"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* ✅ Confirm Password Field with toggle */}
+            <Text style={styles.label}>Confirm Password</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Confirm new password"
+                secureTextEntry={!showConfirmPassword}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+              />
+              <TouchableOpacity
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? "eye-off" : "eye"}
+                  size={22}
+                  color="#067425"
+                />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.button} onPress={handleUpdatePassword} disabled={loading}>
+              <Text style={styles.buttonText}>{loading ? "Updating..." : "Update Password"}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
       {activeSection === "alarms" && (
         <View style={{ marginTop: 20 }}>
@@ -331,6 +395,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     alignItems: "center",
   },
+  passwordContainer: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+eyeIcon: { position: "absolute", right: 12, padding: 5 },
   menuText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   logoutButton: { backgroundColor: "#FF6347", paddingVertical: 14, borderRadius: 8, alignItems: "center", marginTop: 10 },
   logoutText: { color: "#fff", fontSize: 16, fontWeight: "600" },

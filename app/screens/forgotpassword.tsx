@@ -10,7 +10,17 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { createClient } from '@supabase/supabase-js';
-import Ionicons from '@expo/vector-icons/Ionicons'; // 👁️ Add icon library
+import Ionicons from '@expo/vector-icons/Ionicons';
+import bcrypt from 'bcryptjs';
+
+// ✅ Set fallback for React Native
+bcrypt.setRandomFallback((len) => {
+  const buf = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    buf[i] = Math.floor(Math.random() * 256);
+  }
+  return buf;
+});
 
 const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_URL!,
@@ -25,7 +35,7 @@ const ForgotPassword = () => {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [step, setStep] = useState(1);
-  const [userId, setUserId] = useState(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const handleCheckEmail = async () => {
     if (!email.includes('@')) {
@@ -65,9 +75,12 @@ const ForgotPassword = () => {
     }
 
     try {
+      // ✅ Hash the new password safely
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
       const { error } = await supabase
         .from('users')
-        .update({ password: newPassword })
+        .update({ password: hashedPassword })
         .eq('id', userId);
 
       if (error) {
@@ -87,7 +100,6 @@ const ForgotPassword = () => {
 
   return (
     <View style={styles.container}>
-      {/* ICON */}
       <Image source={require('../../assets/icons/images.png')} style={styles.icon} />
 
       {step === 1 && (
@@ -111,9 +123,6 @@ const ForgotPassword = () => {
           <View style={styles.bottomLinks}>
             <TouchableOpacity onPress={() => router.push('./login')}>
               <Text style={styles.link}>Back to Login</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push('./signup')}>
-              <Text style={styles.link}>Sign Up</Text>
             </TouchableOpacity>
           </View>
         </>
@@ -186,75 +195,16 @@ const ForgotPassword = () => {
 export default ForgotPassword;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  icon: {
-    width: 100,
-    height: 100,
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 15,
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#666',
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  input: {
-    width: 300,
-    height: 45,
-    borderWidth: 1,
-    borderColor: '#067425',
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: 300,
-  },
-  eyeIcon: {
-    position: 'absolute',
-    right: 12,
-    padding: 5,
-  },
-  button: {
-    width: '90%',
-    backgroundColor: '#067425',
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 10,
-    marginBottom: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: 'bold',
-  },
-  bottomLinks: {
-    marginTop: 25,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '90%',
-  },
-  link: {
-    color: '#007BFF',
-    fontSize: 14,
-  },
+  container: { flex: 1, padding: 30, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  icon: { width: 100, height: 100, marginBottom: 20 },
+  title: { fontSize: 26, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
+  subtitle: { fontSize: 15, marginBottom: 20, textAlign: 'center', color: '#666' },
+  inputGroup: { marginBottom: 16 },
+  input: { width: 300, height: 45, borderWidth: 1, borderColor: '#067425', paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#fff' },
+  passwordContainer: { flexDirection: 'row', alignItems: 'center', width: 300 },
+  eyeIcon: { position: 'absolute', right: 12, padding: 5 },
+  button: { width: '90%', backgroundColor: '#067425', padding: 15, borderRadius: 8, marginTop: 10, marginBottom: 10, justifyContent: 'center', alignItems: 'center' },
+  buttonText: { color: '#fff', textAlign: 'center', fontWeight: 'bold' },
+  bottomLinks: { marginTop: 25, flexDirection: 'row', justifyContent: 'space-between', width: '90%' },
+  link: { color: '#007BFF', fontSize: 14 },
 });
