@@ -21,6 +21,9 @@ const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// Default local avatar
+const DEFAULT_AVATAR = require("../../assets/images/anonymous.jpg");
+
 const { width: screenWidth } = Dimensions.get("window");
 
 // ----------------------------- Types ----------------------------------
@@ -32,7 +35,7 @@ interface UserType {
   address: string;
   date_of_birth: string;
   condition: string;
-  profile_picture: string;
+  profile_picture: string | null;
   email: string;
   height: number;
   weight: number;
@@ -133,11 +136,30 @@ export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<UserType | null>(null);
   const [loading, setLoading] = useState(true);
-  const [doctorNotes, setDoctorNotes] = useState<any[]>([]);
+  const [doctorNotes, setDoctorNotes] = useState<DoctorReport[]>([]);
   const [checkedNotes, setCheckedNotes] = useState<string[]>([]);
   const [insulinEntries, setInsulinEntries] = useState<InsulinEntry[]>([]);
 
   const handleNavigate = (path: string) => router.push(`/${path}`);
+
+  // toggle a doctor's note checked state and persist to AsyncStorage
+  const toggleCheckedNote = async (noteId: string) => {
+    try {
+      let newChecked: string[] = [];
+      if (checkedNotes.includes(noteId)) {
+        newChecked = checkedNotes.filter((id) => id !== noteId);
+      } else {
+        newChecked = [...checkedNotes, noteId];
+      }
+      setCheckedNotes(newChecked);
+      await AsyncStorage.setItem("checkedNotes", JSON.stringify(newChecked));
+    } catch (e) {
+      console.error("Failed to toggle checked note:", e);
+    }
+  };
+  // Helper for profile image
+  const getProfileImage = (user: UserType) =>
+    user.profile_picture ? { uri: user.profile_picture } : DEFAULT_AVATAR;
 
   useFocusEffect(
     useCallback(() => {
@@ -149,7 +171,7 @@ export default function Dashboard() {
 
           // Load checked notes
           const storedChecked = await AsyncStorage.getItem("checkedNotes");
-          if (storedChecked) {
+          if (storedChecked && isActive) {
             setCheckedNotes(JSON.parse(storedChecked));
           }
 
@@ -168,7 +190,7 @@ export default function Dashboard() {
             date_of_birth: userData.date_of_birth || "",
             condition: userData.condition || "N/A",
             profile_picture:
-              userData.profile_picture || "https://via.placeholder.com/150",
+              userData.profile_picture || null,
             email: userData.email || "N/A",
             height: userData.height || 0,
             weight: userData.weight || 0,
@@ -229,15 +251,10 @@ export default function Dashboard() {
       {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.push("/profile")}>
-          <Image
-            source={{
-              uri: user.profile_picture || "https://via.placeholder.com/150",
-            }}
-            style={styles.profileImage}
-          />
+         <Image source={getProfileImage(user)} style={styles.profileImage} />
         </TouchableOpacity>
 
-        <Text style={styles.welcomeText}>Welcome back,</Text>
+        <Text style={styles.welcomeText}>Hello there!</Text>
         <Text style={styles.usernameText}>{user.username} 👋</Text>
       </View>
 
@@ -353,7 +370,7 @@ export default function Dashboard() {
         </ScrollView>
       </View>
 
-      {/* DOCTOR NOTES */}
+      {/* DOCTOR NOTES as CHECKLIST */}
       <View style={styles.doctorContainer}>
         <Text style={styles.chartSubtitle}>Doctor's Notes</Text>
 
@@ -362,31 +379,55 @@ export default function Dashboard() {
             No doctor's notes available
           </Text>
         ) : (
-          doctorNotes.map((note, index) => (
-            <View key={note.id ?? index} style={styles.doctorNoteCard}>
-              <Ionicons name="medkit" size={24} color="#067425" />
+          doctorNotes.map((note, index) => {
+            const id = String(note.id ?? index);
+            const isChecked = checkedNotes.includes(id);
+            const content =
+              typeof note.report_data === "string"
+                ? note.report_data
+                : note.report_data?.note
+                ? note.report_data.note
+                : JSON.stringify(note.report_data);
 
-              <View style={{ marginLeft: 10, flex: 1 }}>
-                <Text style={styles.doctorNoteText}>
-                  {typeof note.report_data === "string"
-                    ? note.report_data
-                    : note.report_data?.note
-                    ? note.report_data.note
-                    : JSON.stringify(note.report_data)}
-                </Text>
+            return (
+              <TouchableOpacity
+                key={id}
+                style={[
+                  styles.doctorNoteCard,
+                  isChecked && { backgroundColor: "#E6FFED" },
+                ]}
+                onPress={() => toggleCheckedNote(id)}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={isChecked ? "checkbox" : "square-outline"}
+                  size={24}
+                  color={isChecked ? "#067425" : "#374151"}
+                />
 
-                <Text style={styles.doctorDateText}>
-                  {new Date(note.created_at).toLocaleDateString(undefined, {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </Text>
-              </View>
-            </View>
-          ))
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.doctorNoteText,
+                      isChecked && { textDecorationLine: "line-through", color: "#4B5563" },
+                    ]}
+                  >
+                    {content}
+                  </Text>
+
+                  <Text style={styles.doctorDateText}>
+                    {new Date(note.created_at).toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })
         )}
       </View>
     </ScrollView>
@@ -579,6 +620,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     width: "100%",
     marginBottom: 10,
+    alignItems: "center",
   },
 
   doctorNoteText: {
@@ -593,4 +635,3 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 });
-

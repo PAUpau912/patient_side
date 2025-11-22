@@ -1,8 +1,4 @@
-import { 
-  View, Text, StyleSheet, ScrollView, Image, 
-  TextInput, TouchableOpacity, KeyboardAvoidingView, 
-  Platform, ActivityIndicator, Alert 
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import React, { useState, useEffect } from 'react';
 import { FontAwesome } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,12 +7,15 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import moment from 'moment';
 import { Picker } from "@react-native-picker/picker";
 import { createClient } from "@supabase/supabase-js";
+import baranggayData from "../../assets/data/laguna-barangays.json";
 
 // ✅ Supabase client (no Auth)
 const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_URL!,
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!
 );
+// Default local avatar
+const DEFAULT_AVATAR = require("../../assets/images/anonymous.jpg");
 
 type UserProfile = {
   id: string;
@@ -28,7 +27,7 @@ type UserProfile = {
   address?: string;
   condition?: string;
   created_at?: string;
-  profile_picture?: string;
+  profile_picture?: string | null;
   height?: number;
   weight?: number;
   age?: number;
@@ -37,6 +36,7 @@ type UserProfile = {
 };
 
 const Profile: React.FC = () => {
+  const cities = Object.keys(baranggayData);
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<UserProfile | null>(null);
@@ -44,11 +44,19 @@ const Profile: React.FC = () => {
   const [tempDOB, setTempDOB] = useState<Date>(new Date());
   const [bmi, setBmi] = useState<string>("—");
 
-  // 🧩 Address fields
+  // Address fields
   const [street, setStreet] = useState("");
-  const [barangay, setBarangay] = useState("");
-  const [city, setCity] = useState("");
-  const [province, setProvince] = useState("");
+  const [selectedbarangay, setSelectedBarangay] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+  const [province, setProvince] = useState("Laguna");
+
+  // Individual errors
+  const [errors, setErrors] = useState<{
+    height?: boolean;
+    weight?: boolean;
+    age?: boolean;
+    phone_number?: boolean;
+  }>({});
 
   // ✅ Load user data from AsyncStorage, then fetch latest from Supabase
   const fetchProfile = async () => {
@@ -65,7 +73,6 @@ const Profile: React.FC = () => {
       const parsedUser = JSON.parse(storedUser);
       const userId = parsedUser.id;
 
-      // ✅ Fetch patient data with joined email
       const { data, error } = await supabase
         .from("patients")
         .select(`
@@ -100,13 +107,11 @@ const Profile: React.FC = () => {
       calculateBMI(mergedProfile.height, mergedProfile.weight);
       await AsyncStorage.setItem("user", JSON.stringify(mergedProfile));
 
-      // 🧩 Split address into fields if available
       if (mergedProfile.address) {
         const parts = mergedProfile.address.split(",").map((p: string) => p.trim());
         setStreet(parts[0] || "");
-        setBarangay(parts[1] || "");
-        setCity(parts[2] || "");
-        setProvince(parts[3] || "");
+        setSelectedBarangay(parts[1] || "");
+        setSelectedCity(parts[2] || "");
       }
     } catch (error) {
       console.error("❌ Error loading profile:", error);
@@ -120,19 +125,16 @@ const Profile: React.FC = () => {
     fetchProfile();
   }, []);
 
-  // ✅ Calculate BMI automatically
   const calculateBMI = (height?: number, weight?: number) => {
     if (height && weight && height > 0) {
       const heightInMeters = height / 100;
       const bmiValue = weight / (heightInMeters * heightInMeters);
-      const roundedBMI = bmiValue.toFixed(1);
-      setBmi(roundedBMI);
+      setBmi(bmiValue.toFixed(1));
     } else {
       setBmi("—");
     }
   };
 
-  // ✅ Update field locally
   const handleChange = (field: keyof UserProfile, value: any) => {
     if (!profileData) return;
     const updated = { ...profileData, [field]: value };
@@ -142,7 +144,6 @@ const Profile: React.FC = () => {
     }
   };
 
-  // ✅ Upload image to Supabase Storage
   const uploadImageToSupabase = async (uri: string): Promise<string | null> => {
     try {
       if (!profileData?.id) return null;
@@ -189,53 +190,105 @@ const Profile: React.FC = () => {
     }
   };
 
-  // ✅ Save updates to Supabase and AsyncStorage
   const handleSave = async () => {
-    try {
-      if (!profileData?.id) return;
+  let newErrors: any = {};
+  let hasError = false;
 
-      // 🧩 Combine address before saving
-      const combinedAddress = [street, barangay, city, province]
-        .filter(Boolean)
-        .join(", ");
+  // 🔎 HEIGHT VALIDATION
+  if (
+    !profileData?.height ||
+    profileData.height < 50 ||
+    profileData.height > 272
+  ) {
+    newErrors.height = true;
+    hasError = true;
+    Alert.alert("Invalid Height", "Height must be between 50 and 272 cm.");
+  }
 
-      const updateFields = {
-        username: profileData.username,
-        phone_number: profileData.phone_number,
-        date_of_birth: profileData.date_of_birth,
-        address: combinedAddress,
-        profile_picture: profileData.profile_picture,
-        height: profileData.height,
-        weight: profileData.weight,
-        gender: profileData.gender,
-        age: profileData.age,
-      };
+  // 🔎 WEIGHT VALIDATION
+  if (
+    !profileData?.weight ||
+    profileData.weight < 10 ||
+    profileData.weight > 500
+  ) {
+    newErrors.weight = true;
+    hasError = true;
+    Alert.alert("Invalid Weight", "Weight must be between 10 and 500 kg.");
+  }
 
-      const { data: updated, error } = await supabase
-        .from("patients")
-        .update(updateFields)
-        .eq("id", profileData.id)
-        .select(`*, users ( email )`)
-        .single();
+  // 🔎 AGE VALIDATION
+  if (
+    !profileData?.age ||
+    profileData.age < 1 ||
+    profileData.age > 120
+  ) {
+    newErrors.age = true;
+    hasError = true;
+    Alert.alert("Invalid Age", "Age must be between 1 and 120.");
+  }
 
-      if (error) throw error;
+  // 🔎 PHONE NUMBER VALIDATION
+  if (
+    !profileData?.phone_number ||
+    profileData.phone_number.length !== 11
+  ) {
+    newErrors.phone_number = true;
+    hasError = true;
+    Alert.alert("Invalid Phone Number", "Phone number must be 11 digits.");
+  }
 
-      const updatedProfile = {
-        ...profileData,
-        ...updated,
-        email: updated?.users?.email || profileData.email,
-      };
+  // i-apply errors para mag-red highlight
+  setErrors(newErrors);
 
-      await AsyncStorage.setItem("user", JSON.stringify(updatedProfile));
-      setProfileData(updatedProfile);
-      setEditMode(false);
-      Alert.alert("✅ Success", "Profile updated successfully!");
-    } catch (error) {
-      console.error("❌ Error updating profile:", error);
-      Alert.alert("Error", "Failed to update profile");
-    }
-  };
+  // ❌ STOP — wag mag-save kapag may error
+  if (hasError) return;
 
+  // ✔️ PASSED VALIDATION → Proceed saving
+  try {
+    if (!profileData?.id) return;
+
+    const combinedAddress = [street, selectedbarangay, selectedCity, 'Laguna']
+      .filter(Boolean)
+      .join(", ");
+
+    const updateFields = {
+      username: profileData.username,
+      phone_number: profileData.phone_number,
+      date_of_birth: profileData.date_of_birth,
+      address: combinedAddress,
+      profile_picture: profileData.profile_picture,
+      height: profileData.height,
+      weight: profileData.weight,
+      gender: profileData.gender,
+      age: profileData.age,
+    };
+
+    const { data: updated, error } = await supabase
+      .from("patients")
+      .update(updateFields)
+      .eq("id", profileData.id)
+      .select(`*, users ( email )`)
+      .single();
+
+    if (error) throw error;
+
+    const updatedProfile = {
+      ...profileData,
+      ...updated,
+      email: updated?.users?.email || profileData.email,
+    };
+
+    await AsyncStorage.setItem("user", JSON.stringify(updatedProfile));
+    setProfileData(updatedProfile);
+    setEditMode(false);
+    Alert.alert("✅ Success", "Profile updated successfully!");
+  } catch (error) {
+    console.error("❌ Error updating profile:", error);
+    Alert.alert("Error", "Failed to update profile");
+  }
+};
+
+  // DOB picker
   const confirmDOB = (event: any, date?: Date) => {
     if (date) {
       setTempDOB(date);
@@ -262,7 +315,7 @@ const Profile: React.FC = () => {
         <View style={[styles.header, { backgroundColor: "#067425" }]}>
           <TouchableOpacity disabled={!editMode} onPress={pickImage}>
             <Image 
-              source={{ uri: profileData.profile_picture || "https://via.placeholder.com/100" }} 
+               source={profileData.profile_picture ? { uri: profileData.profile_picture } : DEFAULT_AVATAR} 
               style={styles.avatar} 
             />
             {editMode && (
@@ -278,52 +331,110 @@ const Profile: React.FC = () => {
 
         <View style={[styles.infoSection, { backgroundColor: "#FFFFFF" }]}>
           <ProfileItem icon="user" label="Username" value={profileData.username} editable={editMode} onChangeText={(t) => handleChange('username', t)} />
-          <ProfileItem icon="phone" label="Phone" value={profileData.phone_number} editable={editMode} keyboardType="numeric" onChangeText={(t) => handleChange('phone_number', t)} />
+          
+          {/* Phone */}
+          <ProfileItem
+            icon="phone"
+            label="Phone"
+            value={profileData.phone_number}
+            editable={editMode}
+            keyboardType="numeric"
+            onChangeText={(text) => {
+              const cleaned = text.replace(/[^0-9]/g, "").slice(0, 11);
+              handleChange("phone_number", cleaned);
+            }}
+            onEndEditing={(e) => {
+              const value = e.nativeEvent.text;
+              if (!value || value.length !== 11) {
+                Alert.alert("Invalid Phone Number", "Phone number must be exactly 11 digits.");
+                handleChange("phone_number", undefined);
+                setErrors(prev => ({ ...prev, phone_number: true }));
+              } else {
+                setErrors(prev => ({ ...prev, phone_number: false }));
+              }
+            }}
+            styleOverride={errors.phone_number && { borderColor: 'red' }}
+          />
+
           <TouchableOpacity onPress={() => editMode && setDobModal(true)}>
             <ProfileItem icon="calendar" label="Date of Birth" value={profileData.date_of_birth ? moment(profileData.date_of_birth).format("MMMM D, YYYY") : undefined} editable={false} />
           </TouchableOpacity>
 
-          {/* Height Picker */}
-          <ProfileItem icon="arrows-v" label="Height (cm)">
-            <Picker
-              selectedValue={profileData.height}
-              enabled={editMode}
-              onValueChange={(value) => handleChange("height", value)}
-            >
-              {[...Array(223)].map((_, i) => {
-                const height = 50 + i;
-                return <Picker.Item key={height} label={`${height} cm`} value={height} />;
-              })}
-            </Picker>
-          </ProfileItem>
+          {/* Height */}
+          <ProfileItem
+              icon="arrows-v"
+              label="Height (cm)"
+              value={profileData.height?.toString() || ""}
+              editable={editMode}
+              keyboardType="numeric"
+              onChangeText={(text) =>
+                handleChange("height", text === "" ? undefined : parseInt(text))
+              }
+              onEndEditing={(e) => {
+                const value = parseInt(e.nativeEvent.text);
+                if (!value || value < 50 || value > 272) {
+                  Alert.alert("Invalid Height", "Height must be between 50 and 272 cm.");
+                  setErrors(prev => ({ ...prev, height: true }));
+                  handleChange("height", undefined);
+                } else {
+                  setErrors(prev => ({ ...prev, height: false }));
+                  handleChange("height", value);
+                }
+              }}
+              styleOverride={errors.height && { borderColor: "red" }}
+            />
 
-          {/* Weight Picker */}
-          <ProfileItem icon="balance-scale" label="Weight (kg)">
-            <Picker
-              selectedValue={profileData.weight}
-              enabled={editMode}
-              onValueChange={(value) => handleChange("weight", value)}
-            >
-              {[...Array(491)].map((_, i) => {
-                const weight = 10 + i;
-                return <Picker.Item key={weight} label={`${weight} kg`} value={weight} />;
-              })}
-            </Picker>
-          </ProfileItem>
+
+          {/* Weight */}
+            <ProfileItem
+              icon="balance-scale"
+              label="Weight (kg)"
+              value={profileData.weight?.toString() || ""}
+              editable={editMode}
+              keyboardType="numeric"
+              onChangeText={(text) =>
+                handleChange("weight", text === "" ? undefined : parseInt(text))
+              }
+              onEndEditing={(e) => {
+                const value = parseInt(e.nativeEvent.text);
+                if (!value || value < 10 || value > 500) {
+                  Alert.alert("Invalid Weight", "Weight must be between 10 and 500 kg.");
+                  setErrors(prev => ({ ...prev, weight: true }));
+                  handleChange("weight", undefined);
+                } else {
+                  setErrors(prev => ({ ...prev, weight: false }));
+                  handleChange("weight", value);
+                }
+              }}
+              styleOverride={errors.weight && { borderColor: "red" }}
+            />
+
 
           <ProfileItem icon="heartbeat" label="BMI" value={bmi} editable={false} />
 
-          {/* 🎂 Age */}
+          {/* Age */}
           <ProfileItem
             icon="birthday-cake"
             label="Age"
             value={profileData.age?.toString() || ""}
             editable={editMode}
             keyboardType="numeric"
-            onChangeText={(t) => handleChange("age", t === "" ? undefined : Number(t))}
+            onChangeText={(text) => handleChange("age", text === "" ? undefined : parseInt(text))}
+            onEndEditing={(e) => {
+              const value = parseInt(e.nativeEvent.text);
+              if (!value || value < 1 || value > 120) {
+                Alert.alert("Invalid Age", "Age must be between 1 and 120.");
+                handleChange("age", undefined);
+                setErrors(prev => ({ ...prev, age: true }));
+              } else {
+                setErrors(prev => ({ ...prev, age: false }));
+                handleChange("age", value);
+              }
+            }}
+            styleOverride={errors.age && { borderColor: 'red' }}
           />
 
-          {/* 👤 Gender */}
+          {/* Gender */}
           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20 }}>
             <FontAwesome name="venus-mars" size={20} color="#067425" style={{ marginRight: 15 }} />
             {editMode ? (
@@ -338,25 +449,60 @@ const Profile: React.FC = () => {
             )}
           </View>
 
-          {/* 🏠 Address split inputs */}
+          {/* Address */}
           <View style={{ marginBottom: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
               <FontAwesome name="map-marker" size={20} color="#067425" style={{ marginRight: 10 }} />
               <Text style={{ fontSize: 14, color: "#888", fontWeight: "500" }}>Address</Text>
             </View>
-
-            {editMode ? (
-              <>
-                <TextInput style={styles.addressInput} placeholder="Street / House No." value={street} onChangeText={setStreet} />
-                <TextInput style={styles.addressInput} placeholder="Barangay" value={barangay} onChangeText={setBarangay} />
-                <TextInput style={styles.addressInput} placeholder="City / Municipality" value={city} onChangeText={setCity} />
-                <TextInput style={styles.addressInput} placeholder="Province" value={province} onChangeText={setProvince} />
-              </>
-            ) : (
-              <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
-                {profileData.address || "—"}
-              </Text>
-            )}
+                {editMode ? (
+                  <>
+                    {/* STREET INPUT */}
+                    <TextInput
+                      style={styles.addressInput}
+                      placeholder="Street / House No."
+                      value={street}
+                      onChangeText={setStreet}
+                    />
+                    {/* BARANGAY PICKER */}
+                    <Picker
+                      selectedValue={selectedbarangay}
+                      style={{ backgroundColor: "#f4f4f4", marginVertical: 5 }}
+                      enabled={!!selectedCity}
+                      onValueChange={(val) => setSelectedBarangay(val)}
+                    >
+                      <Picker.Item label="Select Barangay" value="" />
+                      {selectedCity &&
+                        (baranggayData as Record<string, string[]>)[selectedCity]?.map(
+                          (brgy: string) => <Picker.Item key={brgy} label={brgy} value={brgy} />
+                        )}
+                    </Picker>
+                    {/* CITY PICKER */}
+                    <Picker
+                      selectedValue={selectedCity}
+                      style={{ backgroundColor: "#f4f4f4", marginVertical: 5 }}
+                      onValueChange={(val) => {
+                        setSelectedCity(val);
+                        setSelectedBarangay("");
+                      }}
+                    >
+                      <Picker.Item label="Select City/Municipality" value="" />
+                      {cities.map((city) => (
+                        <Picker.Item key={city} label={city} value={city} />
+                      ))}
+                    </Picker>
+                    {/* PROVINCE FIXED */}
+                    <TextInput
+                      style={[styles.addressInput, { backgroundColor: "#e5e5e5" }]}
+                      value="Laguna"
+                      editable={false}
+                    />
+                  </>
+                ) : (
+                  <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2937" }}>
+                    {profileData.address || "—"}
+                  </Text>
+                )}
           </View>
 
           <ProfileItem icon="heartbeat" label="Medical Condition" value={profileData.condition} editable={false} />
@@ -376,7 +522,7 @@ const Profile: React.FC = () => {
 };
 
 // ✅ ProfileItem reusable component
-const   ProfileItem: React.FC<any> = ({ icon, label, value, editable = false, onChangeText, children, keyboardType = "default" }) => (
+const ProfileItem: React.FC<any> = ({ icon, label, value, editable = false, onChangeText, children, keyboardType = "default", styleOverride }) => (
   <View style={{ marginBottom: 20 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 5 }}>
       <FontAwesome name={icon} size={20} color="#067425" style={{ marginRight: 10 }} />
@@ -389,7 +535,7 @@ const   ProfileItem: React.FC<any> = ({ icon, label, value, editable = false, on
       </View>
     ) : editable ? (
       <TextInput
-        style={styles.addressInput}
+        style={[styles.addressInput, styleOverride]}
         value={value?.toString() || ""}
         onChangeText={onChangeText}
         placeholder={label}

@@ -86,19 +86,28 @@ const Settings = () => {
   };
 
   const handleUpdateEmail = async () => {
-    if (!email.trim()) return Alert.alert("Error", "Please enter your new email.");
-    if (!user) return;
-    const userId = getUserId();
-    if (!userId) return Alert.alert("Error", "User ID not found.");
-    setLoading(true);
-    const { error } = await supabase.from("users").update({ email }).eq("id", userId);
-    setLoading(false);
-    if (error) return Alert.alert("Error", error.message);
-    const updatedUser = { ...user, email };
-    setUser(updatedUser);
-    await AsyncStorage.setItem("user", JSON.stringify(updatedUser));
-    Alert.alert("Success", "Email updated successfully!");
-  };
+  if (!email.trim()) return Alert.alert("Error", "Please enter your new email.");
+  
+  // ✅ Email format validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return Alert.alert("Invalid Email", "Please enter a valid email address.");
+  }
+
+  if (!user) return;
+  const userId = getUserId();
+  if (!userId) return Alert.alert("Error", "User ID not found.");
+
+  setLoading(true);
+  const { error } = await supabase.from("users").update({ email }).eq("id", userId);
+  setLoading(false);
+  if (error) return Alert.alert("Error", error.message);
+
+  const updatedUser = { ...user, email };
+  setUser(updatedUser);
+  await AsyncStorage.setItem("user", JSON.stringify(updatedUser));
+  Alert.alert("Success", "Email updated successfully!");
+};
 
   const handleUpdatePassword = async () => {
     if (!newPassword || !confirmPassword)
@@ -126,18 +135,54 @@ const Settings = () => {
 // Sa handleReportIssue
 const handleReportIssue = async () => {
   if (!issueText.trim()) return Alert.alert("Error", "Please describe the issue.");
-  const userId = getUserId();
-  const { error } = await supabase
-    .from("reports")
-    .insert({ 
-      user_id: userId, 
-      report_title: reportTitle,  // <-- title field
-      report_data: issueText 
-    });
-  if (error) return Alert.alert("Error", error.message);
-  setIssueText("");
-  Alert.alert("Success", "Issue reported successfully!");
+
+  const userId = getUserId(); // returns user?.user_id || user?.id
+  if (!userId) return Alert.alert("Error", "User ID not found.");
+
+  try {
+    // 1️⃣ Insert the report
+    const { error: reportError } = await supabase
+      .from("reports")
+      .insert({
+        user_id: userId,
+        title: reportTitle,
+        report_data: issueText,
+      });
+
+    if (reportError) throw reportError;
+
+    // 2️⃣ Fetch existing patient record
+    const { data: patientData, error: patientError } = await supabase
+      .from("patients")
+      .select("id")
+      .eq("user_id", userId)
+      .single();
+
+    if (!patientData || patientError) {
+      return Alert.alert("Error", "No patient record exists for this user. Cannot send notification.");
+    }
+
+    // 3️⃣ Insert notification for admin
+    const { error: notifError } = await supabase
+      .from("notifications_patient_admin")
+      .insert({
+        patient_id: patientData.id, // use existing patient.id
+        message: `New report submitted by patient: ${issueText}`,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
+
+    if (notifError) throw notifError;
+
+    // 4️⃣ Clear input and notify user
+    setIssueText("");
+    Alert.alert("Success", "Issue reported successfully!");
+  } catch (err: any) {
+    console.error("Failed to submit report or notification:", err);
+    Alert.alert("Error", err.message);
+  }
 };
+
   // MAIN RENDER
   if (activeSection === "menu") {
     return (

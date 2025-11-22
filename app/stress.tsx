@@ -87,7 +87,12 @@ const StressTracker = () => {
         <View style={styles.card}>
           <Text style={styles.heading}>😟 Stress Tracker</Text>
 
-          <Text style={styles.label}>Stress Level (1 = lowest, 10 = highest)</Text>
+          <Text style={[styles.label, { textAlign: "center" }]}>
+            On a scale of 1–10, how stressed are you right now?
+          </Text>
+          <Text style={[styles.label, { textAlign: "center", fontSize: 12 }]}>
+            1 = Not stressed at all, 10 = Extremely stressed
+          </Text>
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={stressLevel}

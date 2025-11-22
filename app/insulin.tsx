@@ -1,14 +1,4 @@
-import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  Alert,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-  Image,
-} from "react-native";
+import {StyleSheet,Text,View,TextInput,Alert,ScrollView,TouchableOpacity,Platform,Image,} from "react-native";
 import React, { useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -140,7 +130,6 @@ const Insulin = () => {
         cbg_post_meal: cbgPostMeal ? parseInt(cbgPostMeal) : null,
         time: time.toISOString(),
         notes,
-        photo_url: photoUrl,
       };
 
       const { error } = await supabase.from("insulin").insert([insulinData]);
